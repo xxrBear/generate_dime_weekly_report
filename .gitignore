@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# custom configuration files
+*.jpg
+*.png
+*.gif
+*.jpeg
+*.pkl
