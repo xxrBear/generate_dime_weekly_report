@@ -1,6 +1,7 @@
 import os
 import pickle
 import time
+from datetime import datetime
 from io import BytesIO
 
 import requests
@@ -12,8 +13,20 @@ headers = {
     "Content-Type": "application/x-www-form-urlencoded",
 }
 
+# 当前年月日
+today = datetime.today()
+year = today.year
+month = today.month
+day = today.day
+
+# 检查 debug_captcha 文件夹是否存在
+if not os.path.exists("debug_captcha"):
+    os.makedirs("debug_captcha")
+
 
 def get_captcha_code():
+    """获取验证码并保存到本地"""
+
     # 验证码接口
     captcha_url = "https://erp.fulan.com.cn/admin/sec/captcha?date=110"
     resp = session.get(captcha_url)
@@ -34,6 +47,8 @@ def get_captcha_code():
 
 
 def login():
+    """账号登录操作"""
+
     login_url = "https://erp.fulan.com.cn/admin/login"
     login_resp = session.post(login_url, data=login_data)
 
@@ -41,16 +56,17 @@ def login():
         print("登录失败")
         raise Exception("登录失败")
     else:
-        print("登录成功")
+        print(f"{login_data.get('cn_username')} 登录成功")
 
 
 def get_pending_dates():
-    # 获取待处理的日期
+    """获取待填充周报的日期"""
+
     weekly_url = "https://erp.fulan.com.cn/admin/weekly/findweeklyList"
-    week_data = {"month": "2025年07月", "page": 1}
+    week_data = {"month": f"{year}年{month:02d}月", "page": 1}
     res = session.post(weekly_url, data=week_data, headers=headers)
     week_data = res.json().get("data", {})
-    print(f"查询结果: {week_data}")
+    # print(f"查询结果: {week_data}")
 
     if week_data.get("success") and code == "200":
         print("查询项目列表成功")
@@ -62,21 +78,21 @@ def get_pending_dates():
 
     pending_dates = []
     for _date, is_vacation in zip(dateList, isVacation):
-        if is_vacation != "true" and "2025-07" in _date:
+        if is_vacation != "true" and f"{year}-{month:02d}" in _date:
             # print(f"{_date} 不是休息日")
             pending_dates.append(_date)
 
     handled_weekly_days = [
         i.get("workDate")
         for i in weeklyDayList
-        if i.get("status") == "1" and "2025-07" in i.get("workDate", "")
+        if i.get("status") == "1" and f"{year}-{month:02d}" in i.get("workDate", "")
     ]
     # print(f"待处理的工作日: {handled_weekly_days}")
 
     again_pending_dates = []
     for _date in pending_dates:
         for hd in handled_weekly_days:
-            if _date in hd and str(_date).split("-")[-1] <= "26":
+            if _date in hd and int(str(_date).split("-")[-1]) <= day:
                 # print(f"日期 {_date} 待处理")
                 again_pending_dates.append(_date)
 
@@ -114,44 +130,49 @@ def post_weekly_data(again_pending_dates):
         url = "https://erp.fulan.com.cn/admin/weekly/save"
         # 提交请求
         session.post(url, data=payload, headers=headers)
+        print(f"已填充周报数据: {i}")
         time.sleep(1)  # 避免请求过快
 
 
 def submit_data():
+    """提交周报数据"""
+
     submit_url = "https://erp.fulan.com.cn/admin/weekly/submit"
 
-    # 查看是否休息接口
+    # 查看是否是休息日接口
     weekly_url = "https://erp.fulan.com.cn/admin/weekly/findweeklyList"
-    week_data = {"month": "2025年07月", "page": 1}
+    week_data = {"month": f"{year}年{month:02d}月", "page": 1}
     res = session.post(weekly_url, data=week_data, headers=headers)
     week_data = res.json().get("data", {})
 
     weeklyDayList = week_data.get("weeklyDayList")
 
     handled_work_day_ids = [
-        i.get("workDayId")
+        {i.get("workDayId"): i.get("workDate")}
         for i in weeklyDayList
         if i.get("status") == "1" and i.get("workDayId")
     ]
-    if handled_work_day_ids:
-        session.post(
-            submit_url, data={"workDayId": handled_work_day_ids[0]}, headers=headers
-        )
+    for work_day_dict in handled_work_day_ids:
+        for work_day_id, work_date in work_day_dict.items():
+            session.post(submit_url, data={"workDayId": work_day_id}, headers=headers)
+            print(f"已提交周报数据: {work_date}")
+            time.sleep(1)  # 避免请求过快
 
 
 if __name__ == "__main__":
     get_captcha_code()
 
-    code = input("请输入验证码：")
-    # 登录数据
+    code = input("请查看 debug_captcha 文件夹下的验证码图片，并输入验证码：")
+
+    # 登录账户数据
     login_data = {
         "username": "",
         "cn_username": "",
         "password": "",
         "captcha": code,
     }
-    if str(code).isdigit() and len(code) == 4:
-        print("验证码格式正确")
+    if not all(login_data.values()):
+        raise ValueError(f"登录数据缺失 {login_data}")
 
     # 识别验证码后恢复 cookie，登录
     with open("cookie.pkl", "rb") as f:
@@ -159,7 +180,14 @@ if __name__ == "__main__":
     session.cookies.update(cookies)
 
     login()
-    pending_dates = get_pending_dates()
-    print(f"待处理的日期: {pending_dates}")
 
-    post_weekly_data(pending_dates)
+    # ----------------------------------------------------------------
+    # 获取待填充周报的日期并填充数据
+    # ----------------------------------------------------------------
+    pending_dates = get_pending_dates()
+    # post_weekly_data(pending_dates)
+
+    # ----------------------------------------------------------------
+    # 提交周报数据
+    # ----------------------------------------------------------------
+    # submit_data()
